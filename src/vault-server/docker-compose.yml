@@ -1,0 +1,88 @@
+version: '3'
+
+services:
+  etcd:
+    hostname: etcd
+    container_name: etcd
+    image: bitnami/etcd:3.5.5
+    volumes:
+      - /var/lib/etcd/data:/bitnami/etcd/data
+    environment:
+      - TZ=Asia/Shanghai
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    networks:
+      - etcd-network
+    restart: "always"
+    profiles:
+      - prod
+      - dev
+
+  etcdkeeper:
+    hostname: etcdkeeper
+    container_name: etcdkeeper
+    image: evildecay/etcdkeeper:v0.7.6
+    environment:
+      - ETCD_SERVER=http://etcd:2379
+      - HOST=0.0.0.0
+    ports:
+      - "8099:8080"
+    networks:
+      - etcd-network
+    restart: "always"
+    depends_on:
+      - etcd
+    profiles:
+      - dev
+
+  vault:
+    image: hashicorp/vault:1.16
+    container_name: vault
+    hostname: vault
+    ports:
+      - 8200:8200
+    networks:
+      - etcd-network
+      - vault-network
+    volumes:
+      - ./vault-config.hcl:/vault/config/config.hcl
+      - /opt/vault/plugins/:/vault/plugins/
+      - /opt/vault/logs/:/vault/logs/
+    cap_add:
+      - IPC_LOCK
+    command: server
+    restart: always
+    depends_on:
+      - etcd
+    profiles:
+      - prod
+      - dev
+
+  vault-init:
+    image: hashicorp/vault:1.16
+    container_name: vault-init
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - MY_VAULT_TOKEN=${MY_VAULT_TOKEN:-test}
+    networks:
+      - vault-network
+    volumes:
+      - ./vault-init.sh:/usr/local/bin/vault-init.sh
+      - ./vault-data:/vault/file/
+    command: /usr/local/bin/vault-init.sh
+    restart: on-failure
+    depends_on:
+      - vault
+    profiles:
+      - prod
+      - dev
+
+networks:
+  etcd-network:
+    driver: bridge
+  vault-network:
+    driver: bridge
